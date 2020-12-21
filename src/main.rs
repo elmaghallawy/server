@@ -1,6 +1,8 @@
 use std::fs;
 use std::io::prelude::*; // contains many traits that let us read from and write to streams
 use std::net::{TcpListener, TcpStream};
+use std::thread;
+use std::time::Duration;
 
 fn main() {
     // listen to 127.0.0.1:7878 for incoming tcp streams
@@ -8,7 +10,9 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                handle_connection(stream);
+                thread::spawn(|| {
+                    handle_connection(stream);
+                });
             }
             Err(e) => println!("Opss error {}", e),
         }
@@ -30,8 +34,12 @@ fn handle_connection(mut stream: TcpStream) {
     println!("Request: {}", String::from_utf8_lossy(&buffer[..])); // lossy replace invalid utf-8 squence
 
     let get = b"GET / HTTP/1.1\r\n";
+    let sleep = b"GET /sleep HTTP/1.1\r\n";
     // SEND RESPONSE
     let (status_line, filename) = if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
+    } else if buffer.starts_with(sleep) {
+        thread::sleep(Duration::from_secs(5));
         ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
     } else {
         ("HTTP/1.1 404 NOT FOUND\r\n\r\n", "404.html")
