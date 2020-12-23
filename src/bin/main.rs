@@ -1,3 +1,4 @@
+use server::ThreadPool;
 use std::fs;
 use std::io::prelude::*; // contains many traits that let us read from and write to streams
 use std::net::{TcpListener, TcpStream};
@@ -7,14 +8,15 @@ use std::time::Duration;
 fn main() {
     // listen to 127.0.0.1:7878 for incoming tcp streams
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                thread::spawn(|| {
+                pool.excute(|| {
                     handle_connection(stream);
                 });
             }
-            Err(e) => println!("Opss error {}", e),
+            Err(e) => println!("Opss {}", e),
         }
     }
 }
