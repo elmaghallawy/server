@@ -19,15 +19,33 @@ impl Worker {
     /// and in this thread, the worker will loop over its receiving side of the channel
     /// and execute the closures of any jobs it receives
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
-        let thread = thread::spawn(|| {
-            receiver;
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().expect("mutex is in poisoned state, which can happen if some other thread panicked while holding the lock rather than releasing the lock").recv().expect("the thread holding the sending side of the channel might have shut down");
+            println!("Worker {} got a job; executing.", id);
+            job.call_box();
         });
         Worker { id, thread }
     }
 }
 
-/// Job struct holds the closure we want to send to the worker
-struct Job;
+/// trait helps moving the closure out of the box
+trait FnBox {
+    /// similar to the call methods in the other Fn* traits
+    /// except that it takes self:Box<Self> to take ownership of self
+    /// and move the value out of the Box<T>
+    fn call_box(self: Box<Self>);
+}
+impl<F: FnOnce()> FnBox for F {
+    /// any FnOnce() closures can use call_box method
+    /// call_box uses (*self)() to move the closure out of the box<T> and call the closure
+    fn call_box(self: Box<Self>) {
+        (*self)()
+    }
+}
+
+/// Job type holds the closure we want to send to the worker
+/// type alias for a -Box- trait object that holds the type of closure that execute receives
+type Job = Box<FnBox + Send + 'static>;
 
 /// ThreadPool
 pub struct ThreadPool {
@@ -68,5 +86,8 @@ impl ThreadPool {
         // 'static: because we don't know how long the thread will take to excute
         F: FnOnce() + Send + 'static,
     {
+        let job = Box::new(f);
+
+        self.sender.send(job).unwrap();
     }
 }
