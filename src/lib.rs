@@ -3,12 +3,21 @@ use std::sync::Arc; // let multiple workers own the reciever
 use std::sync::Mutex; // ensure that only one worker gets a job from the receiver at a time
 use std::thread;
 
+/// Worker Struct is Responsible for Sending Code from the ThreadPool to a Thread
+/// because thread::spawn wanna give the thread a code to execute as soon as the thread is created
+/// but we want to create thread and make them wait for the code
+///
+/// each worker will store a single JoinHandle<()> instance
+/// and has a method that will take a closure of code to run and send it to the alreading running thread for execution
 pub struct Worker {
     id: usize,
-    thread: thread::JoinHandle<()>,
+    thread: thread::JoinHandle<()>, // () because closure passed to the threadpool will handle the connection and doesn't return anything
 }
 
 impl Worker {
+    /// new worker holds an id and the receiving side of the channel
+    /// and in this thread, the worker will loop over its receiving side of the channel
+    /// and execute the closures of any jobs it receives
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
         let thread = thread::spawn(|| {
             receiver;
@@ -17,8 +26,10 @@ impl Worker {
     }
 }
 
+/// Job struct holds the closure we want to send to the worker
 struct Job;
 
+/// ThreadPool
 pub struct ThreadPool {
     workers: Vec<Worker>,
     sender: mpsc::Sender<Job>,
@@ -46,10 +57,16 @@ impl ThreadPool {
         }
         ThreadPool { workers, sender }
     }
-
+    /// execute method will send a job from threadpool(sending side) to the Worker instances(receiving side)
+    /// which will send the job to its thread.
+    ///
     pub fn excute<F>(&self, f: F)
     where
-        F: FnOnce() + Send + 'static, // we use the () after FnOnce because this FnOnce represents a closure that takes no parameters and doesn't return a value
+        // FnOnce: because the thread for running a request will ony execute that request's closure one time
+        // we use the () after FnOnce because this FnOnce represents a closure that takes no parameters and doesn't return a value
+        // Send: to transfer the closure from one thread to another
+        // 'static: because we don't know how long the thread will take to excute
+        F: FnOnce() + Send + 'static,
     {
     }
 }
