@@ -18,11 +18,23 @@ impl Worker {
     /// new worker holds an id and the receiving side of the channel
     /// and in this thread, the worker will loop over its receiving side of the channel
     /// and execute the closures of any jobs it receives
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread = thread::spawn(move || loop {
-            let job = receiver.lock().expect("mutex is in poisoned state, which can happen if some other thread panicked while holding the lock rather than releasing the lock").recv().expect("the thread holding the sending side of the channel might have shut down");
-            println!("Worker {} got a job; executing.", id);
-            job.call_box();
+            let message = receiver
+            .lock()
+            .expect("mutex is in poisoned state, which can happen if some other thread panicked while holding the lock rather than releasing the lock")
+            .recv()
+            .expect("the thread holding the sending side of the channel might have shut down");
+            match message {
+                Message::NewJob(job) => {
+                    println!("Worker {} got a job; executing.", id);
+                    job.call_box();
+                }
+                Message::Terminate => {
+                    println!("Worker {} was told to terminate.", id);
+                    break;
+                }
+            }
         });
         Worker {
             id,
@@ -50,10 +62,17 @@ impl<F: FnOnce()> FnBox for F {
 /// type alias for a -Box- trait object that holds the type of closure that execute receives
 type Job = Box<dyn FnBox + Send + 'static>;
 
+/// threads in the worker will listen to message enum to whether
+/// (do a new job) or (exit the loop and stop)
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
+
 /// ThreadPool
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: mpsc::Sender<Message>,
 }
 
 impl ThreadPool {
@@ -91,7 +110,7 @@ impl ThreadPool {
     {
         let job = Box::new(f);
 
-        self.sender.send(job).unwrap();
+        self.sender.send(Message::NewJob(job)).unwrap();
     }
 }
 
@@ -99,8 +118,18 @@ impl ThreadPool {
 /// threads should all join to make sure they finish their work
 /// so that threads don't shutdown in the middle of processing requests
 impl Drop for ThreadPool {
+    /// send one terminate message to each worker
+    /// and once to call join on each worker's thread
     ///
+    /// note: we used two loops because if we tried to send a message and join immediately in the same loop,
+    ///       we couldn't guarantee that the worker in the current iteration
+    ///       would be the one to get the message from the channel (Deadlock!)
     fn drop(&mut self) {
+        println!("Sending terminate message to all workers");
+        for _ in &mut self.workers {
+            self.sender.send(Message::Terminate).unwrap();
+        }
+        println!("shutting down all workers");
         for worker in &mut self.workers {
             println!("shutting down worker {}", worker.id);
 
