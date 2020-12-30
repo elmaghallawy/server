@@ -11,7 +11,7 @@ use std::thread;
 /// and has a method that will take a closure of code to run and send it to the alreading running thread for execution
 pub struct Worker {
     id: usize,
-    thread: thread::JoinHandle<()>, // () because closure passed to the threadpool will handle the connection and doesn't return anything
+    thread: Option<thread::JoinHandle<()>>, // () because closure passed to the threadpool will handle the connection and doesn't return anything
 }
 
 impl Worker {
@@ -24,7 +24,10 @@ impl Worker {
             println!("Worker {} got a job; executing.", id);
             job.call_box();
         });
-        Worker { id, thread }
+        Worker {
+            id,
+            thread: Some(thread),
+        }
     }
 }
 
@@ -45,7 +48,7 @@ impl<F: FnOnce()> FnBox for F {
 
 /// Job type holds the closure we want to send to the worker
 /// type alias for a -Box- trait object that holds the type of closure that execute receives
-type Job = Box<FnBox + Send + 'static>;
+type Job = Box<dyn FnBox + Send + 'static>;
 
 /// ThreadPool
 pub struct ThreadPool {
@@ -89,5 +92,21 @@ impl ThreadPool {
         let job = Box::new(f);
 
         self.sender.send(job).unwrap();
+    }
+}
+
+/// implement Drop trait to provide a graceful shutdown of ThreadPool
+/// threads should all join to make sure they finish their work
+/// so that threads don't shutdown in the middle of processing requests
+impl Drop for ThreadPool {
+    ///
+    fn drop(&mut self) {
+        for worker in &mut self.workers {
+            println!("shutting down worker {}", worker.id);
+
+            if let Some(thread) = worker.thread.take() {
+                thread.join().unwrap();
+            }
+        }
     }
 }
