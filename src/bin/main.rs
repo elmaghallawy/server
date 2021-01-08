@@ -31,7 +31,7 @@ fn handle_connection(mut stream: TcpStream) {
     // declare buffer (512 bytes) on the stack to hold data that's read in
     let mut buffer = [0; 512];
     // read the stream bytes and puts the data into the buffer
-    stream.read(&mut buffer).unwrap();
+    stream.read_exact(&mut buffer).unwrap();
     // convert bytes in the buffer to a string and print that string
     println!("Request: {}", String::from_utf8_lossy(&buffer[..])); // lossy replace invalid utf-8 squence
 
@@ -52,7 +52,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     // convert string data to bytes and
     // write takes those bytes and send them directly down the connection
-    stream.write(response.as_bytes()).unwrap();
+    stream.write_all(response.as_bytes()).unwrap();
     // flush will wait and prevent the program from continuing
     // until all the bytes are written into the connection
     stream.flush().unwrap();
